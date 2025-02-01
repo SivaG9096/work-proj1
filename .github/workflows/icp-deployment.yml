@@ -1,0 +1,40 @@
+name: Deploy ICP to Wes UAT V3
+
+on:
+  push:
+    branches:
+      - main  # Adjust branch as needed
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy ICP
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+            # Stop existing container
+            docker stop icp-container || true
+            docker rm icp-container || true
+
+            # Pull latest image
+            docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+            docker pull registry.example.com/icp:latest
+
+            # Run new container
+            docker run -d --name icp-container -p 8080:8080 registry.example.com/icp:latest
+          EOF
+
+      - name: Verify Deployment
+        run: |
+          ssh ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "docker ps | grep icp"
