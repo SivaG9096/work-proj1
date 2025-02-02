@@ -1,0 +1,53 @@
+name: Deploy to WildFly Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/*.ear'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up SSH
+      uses: webfactory/ssh-agent@v0.5.3
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Copy EAR file to WildFly server
+      run: |
+        scp ./path/to/your/ear/file/ICP-backend-services-3.0.48-72.ear user@your-wildfly-server:/data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/deployments/
+
+    - name: Update `standalone-full.xml` to disable old version and enable new version
+      run: |
+        ssh user@your-wildfly-server << 'EOF'
+          # Disable the old version of the EAR file
+          sed -i 's/<deployment name="ICP-backend-services-.*ear" enabled="true">/<deployment name="ICP-backend-services-.*ear" enabled="false">/' /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/configuration/standalone-full.xml
+          
+          # Enable the new version of the EAR file
+          sed -i 's/<deployment name="ICP-backend-services-.*ear" enabled="false">/<deployment name="ICP-backend-services-3.0.48-72.ear" enabled="true">/' /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/configuration/standalone-full.xml
+        EOF
+
+    - name: Check deployment status
+      run: |
+        ssh user@your-wildfly-server << 'EOF'
+          if [ -f /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/deployments/ICP-backend-services-3.0.48-72.ear.deployed ]; then
+            echo "Deployment successful"
+          elif [ -f /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/deployments/ICP-backend-services-3.0.48-72.ear.failed ]; then
+            echo "Deployment failed"
+            exit 1
+          else
+            echo "Deployment not completed"
+            exit 1
+          fi
+        EOF
+
+    - name: View WildFly logs if failure
+      run: |
+        ssh user@your-wildfly-server "tail -n 50 /data/var/log/wildfly/server.log"
