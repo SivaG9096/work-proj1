@@ -1,0 +1,67 @@
+name: Deploy to WildFly Server
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '*/.ear'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up SSH for server connection
+      uses: webfactory/ssh-agent@v0.5.3
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+        
+    - name: Copy EAR file to WildFly server
+      run: |
+        scp ./home/W509292/ICP-backend-services-3.0.48-72.ear user@your-wildfly-server:/data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/deployments/
+
+    - name: Update the standalone-full.xml configuration
+      run: |
+        ssh user@your-wildfly-server << 'EOF'
+          # Backing up current standalone-full.xml
+          cp /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/configuration/standalone-full.xml /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/configuration/standalone-full.xml.bak
+
+          # Modify the deployment list
+          sed -i 's/<deployment.ICP-backend-services-.*ear.*enabled="true".>/<deployment name="ICP-backend-services-3.0.48-72.ear" enabled="false">/g' /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/configuration/standalone-full.xml
+          sed -i 's/<deployment.ICP-backend-services-.*ear.*enabled="false".>/<deployment name="ICP-backend-services-3.0.48-72.ear" enabled="true">/g' /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/configuration/standalone-full.xml
+        EOF
+
+    - name: Deploy EAR file to WildFly
+      run: |
+        ssh user@your-wildfly-server << 'EOF'
+          # Check if the EAR file was copied and placed in the deployments directory
+          if [ -f /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/deployments/ICP-backend-services-3.0.48-72.ear ]; then
+            # Ensure WildFly picks up the EAR file
+            echo "Deploying EAR file..."
+          else
+            echo "EAR file not found. Aborting deployment." && exit 1
+          fi
+        EOF
+
+    - name: Check deployment status
+      run: |
+        ssh user@your-wildfly-server << 'EOF'
+          # Check for the .deployed or .failed file in the deployments directory
+          if [ -f /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/deployments/ICP-backend-services-3.0.48-72.ear.deployed ]; then
+            echo "Deployment successful"
+          elif [ -f /data/wildfly/wildfly/wildfly-8.1.0.Final/standalone/deployments/ICP-backend-services-3.0.48-72.ear.failed ]; then
+            echo "Deployment failed. Check the WildFly logs for details."
+            exit 1
+          else
+            echo "Deployment status unknown."
+            exit 1
+          fi
+        EOF
+
+    - name: Check server logs for errors
+      run: |
+        ssh user@your-wildfly-server "tail -n 50 /data/var/log/wildfly/server.log"
